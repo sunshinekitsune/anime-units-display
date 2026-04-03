@@ -4,6 +4,7 @@ let fade = 0;
 let squish = 0;
 let reloads = [];
 let lastTex = undefined;
+let hintLabel = undefined;
 
 function loadTex(name, defValue){
     let file = Vars.tree.get("chibis/" + name + ".png");
@@ -27,6 +28,24 @@ function loadAll(name){
     }
 }
 
+function fetchText(hint){
+    let text = Vars.mobile && Core.bundle.has("animehint." + hint.name() + ".mobile") ? Core.bundle.get("animehint." + hint.name() + ".mobile") : Core.bundle.get("animehint." + hint.name(), "");
+    if(text == "") return hint.text();
+    if(!Vars.mobile) text = text.replace("tap", "click").replace("Tap", "Click");
+    return text;
+}
+
+function showDialogue(text){
+    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 0.6, Interp.swingIn)), Actions.remove());
+
+    if(text){
+        hintLabel.clearActions();
+        hintLabel.actions(Actions.translateBy(-hintLabel.translation.x, -hintLabel.translation.y, 0.5, Interp.swingIn));
+        Vars.ui.hudGroup.addChildAt(1, hintLabel);
+        hintLabel.restart("{ease}" + text);
+    }
+}
+
 Events.run(ClientLoadEvent, e => {
     Seq.withArrays(Vars.content.units(), Vars.content.blocks().select(b => b instanceof Turret || b == Blocks.router))
     .each(u => {
@@ -43,6 +62,13 @@ Events.run(ClientLoadEvent, e => {
     config[UnitTypes.alpha] = {
         anchor: true
     }
+
+    let hints = Reflect.get(Vars.ui.hints, "group");
+    let lastHint;
+    hintLabel = new FLabel("");
+    hintLabel.setStyle(Styles.outlineLabel);
+    hintLabel.setAlignment(Align.center, Align.left);
+    hintLabel.setWrap(true);
     
     let elem = extend(Element, {
         draw(){
@@ -107,9 +133,29 @@ Events.run(ClientLoadEvent, e => {
                 let floatScl = 50, floatMag = 8;
                 let ox = Mathf.sin(Time.time, 100, floatMag * 0.25), oy = Mathf.cos(Time.time + 5, floatScl, floatMag);
 	            Draw.rect(tex, width/2 + ox, -height * (1.0 - (conf.anchor ? Math.min(fin, 1) : fin)) + height/2 - height * hOffset + (conf.anchor ? 0 : oy) - 1, width * (1 + squishFactor), height * (1 - (conf.anchor ? 0 : squishFactor)));
-	        }
+             
+                let pad = Scl.scl(8);
+                hintLabel.setBounds(pad/2, height + oy, width-pad, 0)
+            }
 
             squish = Mathf.approachDelta(squish, 0, 0.05);
+        }
+    });
+    elem.update(() => {
+        hints.getChildren().each(group => {
+            if(group.getChildren().size > 1){
+                group.getChildren().get(0).remove();
+            }
+        });
+
+        let nextHint = Reflect.get(Vars.ui.hints, "current");
+        if(nextHint != lastHint){
+            lastHint = nextHint;
+            hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 0.6, Interp.swingIn)), Actions.remove());
+
+            if(nextHint != null){
+                showDialogue(fetchText(nextHint));
+            }
         }
     });
     elem.touchable = Touchable.disabled;
