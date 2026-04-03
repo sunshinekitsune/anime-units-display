@@ -35,6 +35,7 @@ function fetchText(hint){
     return text;
 }
 
+//TODO: スキップするのはどうするか
 function showDialogue(text){
     hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 0.6, Interp.swingIn)), Actions.remove());
 
