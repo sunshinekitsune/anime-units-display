@@ -88,7 +88,7 @@ Events.run(ClientLoadEvent, e => {
 
     let config = {}
     config[UnitTypes.zenith] = {
-        anchor: true
+        anchor: false
     }
 
     let hints = Reflect.get(Vars.ui.hints, "group");
