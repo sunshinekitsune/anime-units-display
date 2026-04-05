@@ -5,6 +5,8 @@ let squish = 0;
 let reloads = [];
 let lastTex = undefined;
 let hintLabel = undefined;
+let hasUnit = false
+let playedLines = new ObjectSet();
 
 function loadTex(name, defValue){
     let file = Vars.tree.get("chibis/" + name + ".png");
@@ -29,23 +31,48 @@ function loadAll(name){
 }
 
 function fetchText(hint){
-    let text = Vars.mobile && Core.bundle.has("animehint." + hint.name() + ".mobile") ? Core.bundle.get("animehint." + hint.name() + ".mobile") : Core.bundle.get("animehint." + hint.name(), "");
+    let text = Vars.mobile && Core.bundle.has("animehint." + hint.name() + ".mobile") ? 
+        Core.bundle.get("animehint." + hint.name() + ".mobile") : 
+        Core.bundle.get("animehint." + hint.name(), "");
+
     if(text == "") return hint.text();
     if(!Vars.mobile) text = text.replace("tap", "click").replace("Tap", "Click");
     return text;
 }
 
+function showKey(textName, delay, once, duration){
+    if(Vars.player.dead()) return;
+    let key = "dialogue." + Vars.player.unit().type.name + "." + textName;
+    if(Core.bundle.has(key) && (!once || playedLines.add(key))){
+        Time.run(delay || 0, () => {
+            showDialogue(Core.bundle.get(key), duration || 4);
+        });
+    }
+}
+
 //TODO: スキップするのはどうするか
-function showDialogue(text){
-    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 0.6, Interp.swingIn)), Actions.remove());
+function showDialogue(text, duration){
+    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 1.0, Interp.swingIn)), Actions.remove());
 
     if(text){
         hintLabel.clearActions();
         hintLabel.actions(Actions.translateBy(-hintLabel.translation.x, -hintLabel.translation.y, 0.5, Interp.swingIn));
         Vars.ui.hudGroup.addChildAt(1, hintLabel);
         hintLabel.restart("{ease}" + text);
+
+        if(duration){
+            hintLabel.actions(Actions.delay(duration), Actions.run(() => {
+                    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-50), 1.0, Interp.swingIn)), Actions.remove());
+            }));
+        }
     }
 }
+
+Events.on(UnitControlEvent, e => {
+    if(e.player == Vars.player){
+        showKey("control", 50, true, 4);
+    }
+});
 
 Events.run(ClientLoadEvent, e => {
     Seq.withArrays(Vars.content.units(), Vars.content.blocks().select(b => b instanceof Turret || b == Blocks.router))
@@ -60,7 +87,7 @@ Events.run(ClientLoadEvent, e => {
     });
 
     let config = {}
-    config[UnitTypes.alpha] = {
+    config[UnitTypes.zenith] = {
         anchor: true
     }
 
@@ -73,6 +100,7 @@ Events.run(ClientLoadEvent, e => {
     
     let elem = extend(Element, {
         draw(){
+            hasUnit = false;
             let width = Math.min(Scl.scl(300), Core.graphics.getWidth()/2);
             if(!Vars.player.dead()){
                 let next = Vars.player.unit().type;
@@ -104,6 +132,7 @@ Events.run(ClientLoadEvent, e => {
 	        }
 	        
 	        if(lastType && textures[lastType] && Vars.state.isGame()){
+	            hasUnit = true;
                 let isSummer = Vars.indexer.isBlockPresent(Blocks.sand) && Vars.indexer.isBlockPresent(Blocks.sandWater) && !Vars.indexer.isBlockPresent(Blocks.ice) && !Vars.indexer.isBlockPresent(Blocks.snow) && 
                     (Vars.indexer.isBlockPresent(Blocks.water) || Vars.indexer.isBlockPresent(Blocks.deepWater));
 
@@ -124,19 +153,23 @@ Events.run(ClientLoadEvent, e => {
                     squish = Math.max(squish, 0.5);
                     lastTex = mainTex;
                 }
-
+                
                 let conf = config[lastType] || {}
+                let anchor = (conf.anchor === undefined ? true : conf.anchor)
                 let fin = Interp.swingOut.apply(fade);
-                let hOffset = config.anchor ? 0 : 0.02;
 	            let tex = Draw.wrap(mainTex);
 	            let height = width * tex.height / tex.width;
                 let squishFactor = 0.2 * squish + Mathf.sin(Time.time, 20, 0.01);
                 let floatScl = 50, floatMag = 8;
                 let ox = Mathf.sin(Time.time, 100, floatMag * 0.25), oy = Mathf.cos(Time.time + 5, floatScl, floatMag);
-	            Draw.rect(tex, width/2 + ox, -height * (1.0 - (conf.anchor ? Math.min(fin, 1) : fin)) + height/2 - height * hOffset + (conf.anchor ? 0 : oy) - 1, width * (1 + squishFactor), height * (1 - (conf.anchor ? 0 : squishFactor)));
+
+                let fwidth = width * (1 + squishFactor)
+                let fheight = height * (1 - squishFactor);
+                
+	            Draw.rect(tex, width/2 + ox, Math.min(-height * (1.0 - fin) + height/2 + oy - 1, anchor ? fheight/2 : -1000.0), fwidth, fheight);
              
-                let pad = Scl.scl(8);
-                hintLabel.setBounds(pad/2, height + oy, width-pad, 0)
+                let pad = Scl.scl(12);
+                hintLabel.setBounds(pad/2, height + oy, width-pad*2, 0)
             }
 
             squish = Mathf.approachDelta(squish, 0, 0.05);
@@ -145,9 +178,13 @@ Events.run(ClientLoadEvent, e => {
     elem.update(() => {
         hints.getChildren().each(group => {
             if(group.getChildren().size > 1){
-                group.getChildren().get(0).remove();
+                group.getChildren().get(0).visible = !hasUnit;
             }
         });
+        if(hasUnit && !hintLabel.visible){
+            hintLabel.restart();
+        }
+        hintLabel.visible = hasUnit;
 
         let nextHint = Reflect.get(Vars.ui.hints, "current");
         if(nextHint != lastHint){
