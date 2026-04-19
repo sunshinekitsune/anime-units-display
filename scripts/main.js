@@ -165,7 +165,7 @@ Events.run(ClientLoadEvent, e => {
 
                 let fwidth = width * (1 + squishFactor)
                 let fheight = height * (1 - squishFactor);
-                
+				Draw.color();
 	            Draw.rect(tex, width/2 + ox, Math.min(-height * (1.0 - fin) + height/2 + oy - 1, anchor ? fheight/2 : -1000.0), fwidth, fheight);
              
                 let pad = Scl.scl(12);
