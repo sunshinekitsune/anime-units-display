@@ -161,12 +161,13 @@ Events.run(ClientLoadEvent, e => {
 	            let height = width * tex.height / tex.width;
                 let squishFactor = 0.2 * squish + Mathf.sin(Time.time, 20, 0.01);
                 let floatScl = 50, floatMag = 8;
-                let ox = Mathf.sin(Time.time, 100, floatMag * 0.25), oy = Mathf.cos(Time.time + 5, floatScl, floatMag);
+                let ox = Mathf.sin(Time.time, 100, floatMag * 0.25), oy = Mathf.cos(Time.time + 5, floatScl, floatMag) - height * 0.02;
 
                 let fwidth = width * (1 + squishFactor)
                 let fheight = height * (1 - squishFactor);
-				Draw.color();
-	            Draw.rect(tex, width/2 + ox, Math.min(-height * (1.0 - fin) + height/2 + oy - 1, anchor ? fheight/2 : -1000.0), fwidth, fheight);
+                
+                Draw.color();
+				Draw.rect(tex, width/2 + ox, Math.min(-height * (1.0 - fin) + height/2 + oy - 1, anchor ? fheight/2 : -1000.0), fwidth, fheight);
              
                 let pad = Scl.scl(12);
                 hintLabel.setBounds(pad/2, height + oy, width-pad*2, 0)
