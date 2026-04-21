@@ -52,17 +52,19 @@ function showKey(textName, delay, once, duration){
 
 //TODO: スキップするのはどうするか
 function showDialogue(text, duration){
-    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 1.0, Interp.swingIn)), Actions.remove());
+    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-50), 1.0, Interp.swingIn)), Actions.hide());
 
     if(text){
         hintLabel.clearActions();
-        hintLabel.actions(Actions.translateBy(-hintLabel.translation.x, -hintLabel.translation.y, 0.5, Interp.swingIn));
+        hintLabel.visible = true;
+        hintLabel.color.a = 1;
+        hintLabel.translation.y = 0;
         Vars.ui.hudGroup.addChildAt(1, hintLabel);
         hintLabel.restart("{ease}" + text);
 
         if(duration){
             hintLabel.actions(Actions.delay(duration), Actions.run(() => {
-                    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-50), 1.0, Interp.swingIn)), Actions.remove());
+                    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-50), 1.0, Interp.swingIn)), Actions.hide());
             }));
         }
     }
@@ -82,7 +84,7 @@ Events.on(PayloadDropEvent, e => {
 
 Events.on(PickupEvent, e => {
     if(e.carrier == Vars.player.unit()){
-        showKey("pickup", 50, true, 4);
+        showKey("pickup", 0, true, 3);
     }
 });
 
@@ -202,7 +204,7 @@ Events.run(ClientLoadEvent, e => {
         let nextHint = Reflect.get(Vars.ui.hints, "current");
         if(nextHint != lastHint){
             lastHint = nextHint;
-            hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 0.6, Interp.swingIn)), Actions.remove());
+            hintLabel.actions(Actions.parallel(Actions.show(), Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 0.6, Interp.swingIn)), Actions.hide());
 
             if(nextHint != null){
                 showDialogue(fetchText(nextHint));
