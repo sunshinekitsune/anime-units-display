@@ -74,6 +74,18 @@ Events.on(UnitControlEvent, e => {
     }
 });
 
+Events.on(PayloadDropEvent, e => {
+    if(e.carrier == Vars.player.unit()){
+        showKey("drop", 50, true, 4);
+    }
+});
+
+Events.on(PickupEvent, e => {
+    if(e.carrier == Vars.player.unit()){
+        showKey("pickup", 50, true, 4);
+    }
+});
+
 Events.run(ClientLoadEvent, e => {
     Seq.withArrays(Vars.content.units(), Vars.content.blocks().select(b => b instanceof Turret || b == Blocks.router))
     .each(u => {
