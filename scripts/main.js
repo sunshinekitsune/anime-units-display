@@ -44,7 +44,7 @@ function showKey(textName, delay, once, duration){
     if(Vars.player.dead()) return;
     let key = "dialogue." + Vars.player.unit().type.name + "." + textName;
     if(Core.bundle.has(key) && (!once || playedLines.add(key))){
-        Time.run(delay || 0, () => {
+        Time.runTask(delay || 0, () => {
             showDialogue(Core.bundle.get(key), duration || 4);
         });
     }
@@ -173,9 +173,9 @@ Events.run(ClientLoadEvent, e => {
                 let fin = Interp.swingOut.apply(fade);
 	            let tex = Draw.wrap(mainTex);
 	            let height = width * tex.height / tex.width;
-                let squishFactor = 0.2 * squish + Mathf.sin(Time.time, 20, 0.01);
+                let squishFactor = 0.2 * squish + Mathf.sin(Time.globalTime, 20, 0.01);
                 let floatScl = 50, floatMag = 8;
-                let ox = Mathf.sin(Time.time, 100, floatMag * 0.25), oy = Mathf.cos(Time.time + 5, floatScl, floatMag) - height * 0.02;
+                let ox = Mathf.sin(Time.globalTime, 100, floatMag * 0.25), oy = Mathf.cos(Time.globalTime + 5, floatScl, floatMag) - height * 0.02;
 
                 let fwidth = width * (1 + squishFactor)
                 let fheight = height * (1 - squishFactor);
