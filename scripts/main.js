@@ -148,7 +148,7 @@ Events.run(ClientLoadEvent, e => {
 	        if(lastType && textures[lastType] && Vars.state.isGame()){
 	            hasUnit = true;
                 let isSummer = Vars.indexer.isBlockPresent(Blocks.sand) && Vars.indexer.isBlockPresent(Blocks.sandWater) && !Vars.indexer.isBlockPresent(Blocks.ice) && !Vars.indexer.isBlockPresent(Blocks.snow) && 
-                    (Vars.indexer.isBlockPresent(Blocks.water) || Vars.indexer.isBlockPresent(Blocks.deepWater));
+                    (Vars.indexer.isBlockPresent(Blocks.water) || Vars.indexer.isBlockPresent(Blocks.deepwater));
 
                 let mainData = textures[lastType];
                 let data = (isSummer ? mainData.summer : mainData.def) || mainData.def;
