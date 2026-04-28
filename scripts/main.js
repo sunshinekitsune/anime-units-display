@@ -1,4 +1,5 @@
 let textures = {};
+let globalTextures = {};
 let lastType = undefined;
 let fade = 0;
 let squish = 0;
@@ -7,6 +8,7 @@ let lastTex = undefined;
 let hintLabel = undefined;
 let hasUnit = false
 let playedLines = new ObjectSet();
+const mod = Vars.mods.getMod("anime-units-display");
 
 function loadTex(name, defValue){
     let file = Vars.tree.get("chibis/" + name + ".png");
@@ -23,11 +25,12 @@ function loadAll(name){
     if(mainTex){
         return {
             main: mainTex,
-            mining: loadTex(name + "-mining", mainTex),
+            mining: loadTex(name + "-mining", null),
             building: loadTex(name + "-building", mainTex),
-            shooting: loadTex(name + "-shooting", mainTex),
+            shooting: loadTex(name + "-shooting", null),
         };
     }
+    return null;
 }
 
 function fetchText(hint){
@@ -105,6 +108,46 @@ Events.run(ClientLoadEvent, e => {
         anchor: false
     }
 
+    Vars.ui.settings.addCategory("Anime Units Display", Icon.info, t => {
+        t.check("Enable Global Override", Core.settings.getBool("anime-units-display-global-enable", false), b => Core.settings.put("anime-units-display-global-enable", b)).left().row();
+        t.check("Use Fallback Handling", Core.settings.getBool("anime-units-display-fallback", true), b => Core.settings.put("anime-units-display-fallback", b)).left().row();
+        const overrideButton = t.button("Texture: " + Core.settings.getString("anime-units-display-global-texture", "alpha"), function () {
+            const dialog = new BaseDialog("Select Character");
+            dialog.addCloseButton();
+            const baseNames = [];
+            if (mod.root.child("chibis").exists()) {
+                const files = mod.root.child("chibis").list();
+                for (let i = 0; i < files.length; i++) {
+                    const name = files[i].nameWithoutExtension();
+                    if (!name.endsWith("-mining") && !name.endsWith("-building") && !name.endsWith("-shooting") && !name.endsWith("-summer")) {
+                        baseNames.push(name);
+                    }
+                }
+            }
+            const pane = new Table();
+            let j = 0;
+            for (let i = 0; i < baseNames.length; i++) {
+                const name = baseNames[i];
+                pane.button(name, () => {
+                    Core.settings.put("anime-units-display-global-texture", name);
+                    overrideButton.get().setText("Texture: " + name);
+                    if (!globalTextures[name]) {
+                        globalTextures[name] = { def: loadAll(name), summer: loadAll(name + "-summer") };
+                    }
+
+                    dialog.hide();
+                }).size(200, 50);
+                j++;
+                if (j % 2 === 0) {
+                    pane.row();
+                }
+            }
+            dialog.cont.add(new ScrollPane(pane)).grow();
+            dialog.show();
+        }).width(300).height(50).padTop(10).left();
+        t.row();
+    });
+
     let hints = Reflect.get(Vars.ui.hints, "group");
     let lastHint;
     hintLabel = new FLabel("");
@@ -116,6 +159,8 @@ Events.run(ClientLoadEvent, e => {
         draw(){
             hasUnit = false;
             let width = Math.min(Scl.scl(300), Core.graphics.getWidth()/2);
+            const isGlobal = Core.settings.getBool("anime-units-display-global-enable", false);
+            const globalName = Core.settings.getString("anime-units-display-global-texture", "alpha");
             if(!Vars.player.dead()){
                 let next = Vars.player.unit().type;
                 if(next == UnitTypes.block){
@@ -145,23 +190,48 @@ Events.run(ClientLoadEvent, e => {
                 fade = Mathf.approachDelta(fade, 0, 0.04);
 	        }
 	        
-	        if(lastType && textures[lastType] && Vars.state.isGame()){
+            let mainData = null;
+            if (isGlobal) {
+                if (!globalTextures[globalName]) {
+                    globalTextures[globalName] = {
+                        def: loadAll(globalName),
+                        summer: loadAll(globalName + "-summer")
+                    };
+                }
+                mainData = globalTextures[globalName];
+            } else if (lastType && textures[lastType]) {
+                mainData = textures[lastType];
+            }
+            if (mainData && mainData.def && Vars.state.isGame()) {
 	            hasUnit = true;
                 let isSummer = Vars.indexer.isBlockPresent(Blocks.sand) && Vars.indexer.isBlockPresent(Blocks.sandWater) && !Vars.indexer.isBlockPresent(Blocks.ice) && !Vars.indexer.isBlockPresent(Blocks.snow) && 
                     (Vars.indexer.isBlockPresent(Blocks.water) || Vars.indexer.isBlockPresent(Blocks.deepwater));
 
-                let mainData = textures[lastType];
-                let data = (isSummer ? mainData.summer : mainData.def) || mainData.def;
+                let data = (isSummer && mainData.summer ? mainData.summer : mainData.def) || mainData.def;
                 let unit = Vars.player.unit();
 
-                let mainTex = 
-                    Vars.player.dead() ? data.main : 
-                    (
-                        unit.mining() ? data.mining :
-                        unit.activelyBuilding() ? data.building :
-                        unit.isShooting ? data.shooting :
-                        data.main
-                    );
+                const isFallback = Core.settings.getBool("anime-units-display-fallback", true);
+                let texMining = data.mining;
+                let texShooting = data.shooting;
+                let texBuilding = data.building;
+                if (isFallback) {
+                    if (texMining == null && texShooting != null) texMining = texShooting;
+                    if (texShooting == null && texMining != null) texShooting = texMining;
+                }
+                if (texMining == null) texMining = data.main;
+                if (texShooting == null) texShooting = data.main;
+                if (texBuilding == null) texBuilding = data.main;
+
+                let mainTex = data.main;
+                if (!Vars.player.dead()) {
+                    if (unit.mining()) {
+                        mainTex = texMining;
+                    } else if (unit.activelyBuilding()) {
+                        mainTex = texBuilding;
+                    } else if (unit.isShooting) {
+                        mainTex = texShooting;
+                    }
+                }
                 
                 if(lastTex != mainTex){
                     squish = Math.max(squish, 0.5);
