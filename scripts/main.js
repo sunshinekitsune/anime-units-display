@@ -167,11 +167,16 @@ Events.run(ClientLoadEvent, e => {
                     next = Vars.player.unit().tile().block;
                 }
                 if(lastType != next){
-                    fade = Mathf.approachDelta(fade, 0, 0.04);
-                    if(fade <= 0.01){
+                    if (isGlobal) {
                         lastType = next;
                         reloads = Array(Vars.player.unit().mounts.length);
-                        squish = 1;
+                    } else {
+                        fade = Mathf.approachDelta(fade, 0, 0.04);
+                        if(fade <= 0.01){
+                            lastType = next;
+                            reloads = Array(Vars.player.unit().mounts.length);
+                            squish = 1;
+                        }
                     }
                 }else{
                     fade = Mathf.approachDelta(fade, 1, 0.04);
