@@ -1,291 +1,395 @@
-let textures = {};
-let globalTextures = {};
-let lastType = undefined;
+const modid = "anime-units-display";
+const mod = Vars.mods.getMod(modid);
+
+const DEFAULT_OVERRIDE_CHARACTER = "alpha-peek";
+const NO_ANCHOR_CHARACTERS = ["zenith"];
+
+const KEY_GLOBAL_OVERRIDE_ENABLED = modid + "-global-override-enabled";
+const KEY_GLOBAL_OVERRIDE_TEXTURE = modid + "-global-override-texture";
+const KEY_FALLBACK_HANDLING = modid + "-fallback-handling";
+
+const CHIBIS_DIRECTORY = "chibis";
+
+/**
+ * Default = 0
+ * Summer = 1
+ * Winter = 2
+ */
+let mapType = 0;
+const coldFloors = new Seq();
+const summerFloors = new Seq();
+const waterFloors = new Seq();
+const SUMMER_MINIMUM = 4;
+const COLD_MINIMUM = 3;
+
+const cache = new Map();
+const globalCache = new Map();
+let currentTexSet = null;
+let lastType = null;
+let lastTex = null;
+let lastTargetChar = null;
+let lastHint = null;
+
 let fade = 0;
 let squish = 0;
 let reloads = [];
-let lastTex = undefined;
-let hintLabel = undefined;
-let hasUnit = false
-let playedLines = new ObjectSet();
-const mod = Vars.mods.getMod("anime-units-display");
+let hasUnit = false;
+const playedLines = new ObjectSet();
+let hintLabel = null;
 
-function loadTex(name, defValue){
-    let file = Vars.tree.get("chibis/" + name + ".png");
-    if(file.exists()){
-        let tex = new Texture(file, true);
+function getTex(name) {
+    if (cache.has(name)) {
+        return cache.get(name);
+    }
+
+    let file = mod.root.child(CHIBIS_DIRECTORY).child(name + ".png");
+    if (!file.exists()) {
+        file = Vars.tree.get(CHIBIS_DIRECTORY + "/" + name + ".png");
+    }
+
+    if (file.exists()) {
+        const tex = new Texture(file, true);
         tex.setFilter(Texture.TextureFilter.mipMapLinearLinear, Texture.TextureFilter.linear);
+        cache.set(name, tex);
         return tex;
     }
-    return defValue;
-}
 
-function loadAll(name){
-    let mainTex = loadTex(name);
-    if(mainTex){
-        return {
-            main: mainTex,
-            mining: loadTex(name + "-mining", null),
-            building: loadTex(name + "-building", mainTex),
-            shooting: loadTex(name + "-shooting", null),
-        };
-    }
+    cache.set(name, null);
     return null;
 }
 
-function fetchText(hint){
-    let text = Vars.mobile && Core.bundle.has("animehint." + hint.name() + ".mobile") ? 
-        Core.bundle.get("animehint." + hint.name() + ".mobile") : 
-        Core.bundle.get("animehint." + hint.name(), "");
+function loadData(name) {
+    if (!name) {
+        return null;
+    }
 
-    if(text == "") return hint.text();
-    if(!Vars.mobile) text = text.replace("tap", "click").replace("Tap", "Click");
+    const main = getTex(name);
+    if (!main) {
+        return null;
+    }
+    return {
+        main: main,
+        mining: getTex(name + "-mining"),
+        building: getTex(name + "-building"),
+        shooting: getTex(name + "-shooting")
+    };
+}
+
+function getFullSet(name) {
+    if (!name) return null;
+    if (globalCache.has(name)) {
+        return globalCache.get(name);
+    }
+
+    const data = {
+        default: loadData(name),
+        summer: loadData(name + "-summer"),
+        winter: loadData(name + "-winter")
+    };
+    globalCache.set(name, data);
+    return data;
+}
+
+function getSeasonalData(data) {
+    if (!data) {
+        return null;
+    }
+    if (mapType === 1 && data.summer) {
+        return data.summer;
+    }
+    if (mapType === 2 && data.winter) {
+        return data.winter;
+    }
+    return data.default;
+}
+
+function fetchText(hint) {
+    const key = "animehint." + hint.name() + (Vars.mobile ? ".mobile" : "");
+    let text = Core.bundle.has(key) ? Core.bundle.get(key) : hint.text();
+    if (!Vars.mobile && text) {
+        text = text.replace(/tap/g, "click").replace(/Tap/g, "Click");
+    }
     return text;
 }
 
-function showKey(textName, delay, once, duration){
-    if(Vars.player.dead()) return;
-    let key = "dialogue." + Vars.player.unit().type.name + "." + textName;
-    if(Core.bundle.has(key) && (!once || playedLines.add(key))){
-        Time.runTask(delay || 0, () => {
-            showDialogue(Core.bundle.get(key), duration || 4);
-        });
+function showDialogue(text, duration) {
+    if (duration === undefined) {
+        duration = 4;
     }
-}
 
-//TODO: スキップするのはどうするか
-function showDialogue(text, duration){
-    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-50), 1.0, Interp.swingIn)), Actions.hide());
+    if (!hintLabel) {
+        return;
+    }
 
-    if(text){
-        hintLabel.clearActions();
-        hintLabel.visible = true;
-        hintLabel.color.a = 1;
-        hintLabel.translation.y = 0;
-        Vars.ui.hudGroup.addChildAt(1, hintLabel);
+    hintLabel.clearActions();
+    if (!text) {
+        hintLabel.actions(Actions.parallel(Actions.alpha(0, 0.5), Actions.translateBy(0, -20, 0.5)), Actions.hide());
+        return;
+    }
+
+    hintLabel.visible = true;
+    hintLabel.color.a = 1;
+    hintLabel.translation.y = 0;
+
+    if (hintLabel.restart) {
         hintLabel.restart("{ease}" + text);
+    } else {
+        hintLabel.setText(text);
+    }
 
-        if(duration){
-            hintLabel.actions(Actions.delay(duration), Actions.run(() => {
-                    hintLabel.actions(Actions.parallel(Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-50), 1.0, Interp.swingIn)), Actions.hide());
-            }));
-        }
+    hintLabel.actions(Actions.delay(duration), Actions.run(() => hintLabel.actions(Actions.parallel(Actions.alpha(0, 0.8, Interp.smooth), Actions.translateBy(0, -30, 0.8, Interp.sinkIn)), Actions.hide())));
+}
+
+function showKey(textName, delay, once, duration) {
+    if (delay === undefined) {
+        delay = 0;
+    }
+    if (once === undefined) {
+        once = true;
+    }
+    if (duration === undefined) {
+        duration = 4;
+    }
+
+    if (Vars.player.dead()) {
+        return;
+    }
+
+    const unit = Vars.player.unit();
+    if (!unit || !unit.type) {
+        return;
+    }
+
+    const key = "dialogue." + unit.type.name + "." + textName;
+    if (Core.bundle.has(key) && (!once || playedLines.add(key))) {
+        Time.runTask(delay, () => showDialogue(Core.bundle.get(key), duration));
     }
 }
 
-Events.on(UnitControlEvent, e => {
-    if(e.player == Vars.player){
-        showKey("control", 50, true, 4);
-    }
-});
-
-Events.on(PayloadDropEvent, e => {
-    if(e.carrier == Vars.player.unit()){
-        showKey("drop", 50, true, 4);
-    }
-});
-
-Events.on(PickupEvent, e => {
-    if(e.carrier == Vars.player.unit()){
-        showKey("pickup", 0, true, 3);
-    }
-});
-
-Events.run(ClientLoadEvent, e => {
-    Seq.withArrays(Vars.content.units(), Vars.content.blocks().select(b => b instanceof Turret || b == Blocks.router))
-    .each(u => {
-        let main = loadAll(u.name);
-        if(main){
-            textures[u] = {
-                def: main,
-                summer: loadAll(u.name + "-summer")
-            };
+Events.run(WorldLoadEvent, () => {
+    Core.app.post(() => {
+        mapType = 0;
+        let summerPresent = 0;
+        let coldPresent = 0;
+        Vars.state.rules.weather.each(w => {
+            if (w.weather == Weathers.rain) {
+                summerPresent--;
+            }
+            if (w.weather == Weathers.sandstorm) {
+                summerPresent++;
+            }
+            if (w.weather == Weathers.snow) {
+                coldPresent++;
+            }
+        });
+        for (let i = 0; i < coldFloors.size; i++) {
+            if (coldPresent >= COLD_MINIMUM) {
+                break;
+            }
+            if (Vars.indexer.isBlockPresent(coldFloors.get(i))) {
+                coldPresent++;
+            }
+        }
+        if (coldPresent >= COLD_MINIMUM) {
+            mapType = 2;
+        } else {
+            let hasWater = false;
+            for (let i = 0; i < waterFloors.size; i++) {
+                if (Vars.indexer.isBlockPresent(waterFloors.get(i))) {
+                    hasWater = true;
+                    const f = waterFloors.get(i);
+                    if ((f instanceof ShallowLiquid && summerFloors.contains(f.floorBase)) || f.drownTime > 0) {
+                        summerPresent++;
+                    }
+                }
+            }
+            for (let i = 0; i < summerFloors.size && summerPresent < SUMMER_MINIMUM; i++) {
+                if (Vars.indexer.isBlockPresent(summerFloors.get(i))) {
+                    summerPresent++;
+                }
+            }
+            if (hasWater && summerPresent >= SUMMER_MINIMUM) {
+                mapType = 1;
+            }
         }
     });
+});
 
-    let config = {}
-    config[UnitTypes.zenith] = {
-        anchor: false
-    }
+Events.on(UnitControlEvent, e => e.player == Vars.player && showKey("control", 50));
+Events.on(PayloadDropEvent, e => e.carrier == Vars.player.unit() && showKey("drop", 50));
+Events.on(PickupEvent, e => e.carrier == Vars.player.unit() && showKey("pickup", 0));
 
-    Vars.ui.settings.addCategory("Anime Units Display", Icon.info, t => {
-        t.check("Enable Global Override", Core.settings.getBool("anime-units-display-global-enable", false), b => Core.settings.put("anime-units-display-global-enable", b)).left().row();
-        t.check("Use Fallback Handling", Core.settings.getBool("anime-units-display-fallback", true), b => Core.settings.put("anime-units-display-fallback", b)).left().row();
-        const overrideButton = t.button("Texture: " + Core.settings.getString("anime-units-display-global-texture", "alpha"), function () {
+Events.run(ClientLoadEvent, () => {
+    Vars.content.blocks().each(b => {
+        if (b instanceof Floor) {
+            if (b.itemDrop == Items.sand) {
+                summerFloors.add(b);
+            }
+            if (b.liquidDrop == Liquids.water) {
+                waterFloors.add(b);
+            }
+            if (b.name && (b.name.includes("ice") || b.name.includes("snow") || b.name.includes("icy"))) {
+                coldFloors.add(b);
+            }
+        }
+    });
+    Vars.ui.settings.addCategory("Anime Units Display", Core.atlas.drawable("alphaaaa"), t => {
+        t.check("Enable global override", Core.settings.getBool(KEY_GLOBAL_OVERRIDE_ENABLED, false), b => Core.settings.put(KEY_GLOBAL_OVERRIDE_ENABLED, b)).left().row();
+        t.check("Use fallback handling", Core.settings.getBool(KEY_FALLBACK_HANDLING, true), b => Core.settings.put(KEY_FALLBACK_HANDLING, b)).left().row();
+        const overrideButton = t.button("Texture: " + Core.settings.getString(KEY_GLOBAL_OVERRIDE_TEXTURE, DEFAULT_OVERRIDE_CHARACTER), () => {
             const dialog = new BaseDialog("Select Character");
             dialog.addCloseButton();
-            const baseNames = [];
-            if (mod.root.child("chibis").exists()) {
-                const files = mod.root.child("chibis").list();
-                for (let i = 0; i < files.length; i++) {
-                    const name = files[i].nameWithoutExtension();
-                    if (!name.endsWith("-mining") && !name.endsWith("-building") && !name.endsWith("-shooting") && !name.endsWith("-summer")) {
-                        baseNames.push(name);
-                    }
-                }
-            }
-            const pane = new Table();
-            let j = 0;
-            for (let i = 0; i < baseNames.length; i++) {
-                const name = baseNames[i];
-                pane.button(name, () => {
-                    Core.settings.put("anime-units-display-global-texture", name);
-                    overrideButton.get().setText("Texture: " + name);
-                    if (!globalTextures[name]) {
-                        globalTextures[name] = { def: loadAll(name), summer: loadAll(name + "-summer") };
-                    }
 
-                    dialog.hide();
-                }).size(200, 50);
-                j++;
-                if (j % 2 === 0) {
-                    pane.row();
-                }
+            const pane = new Table();
+            const baseNames = [];
+            const chibisDirectory = mod.root.child(CHIBIS_DIRECTORY);
+            if (chibisDirectory.exists()) {
+                chibisDirectory.list().forEach(f => {
+                    const n = f.nameWithoutExtension();
+                    if (!n.match(/-(mining|building|shooting|summer|winter)$/)) {
+                        baseNames.push(n);
+                    }
+                });
             }
+
+            baseNames.forEach((name, i) => {
+                pane.button(name, () => {
+                    Core.settings.put(KEY_GLOBAL_OVERRIDE_TEXTURE, name);
+                    overrideButton.setText("Texture: " + name);
+                    getFullSet(name);
+                    dialog.hide();
+                }).size(200, 50).pad(4);
+                if (i % 2 === 1) pane.row();
+            });
+
             dialog.cont.add(new ScrollPane(pane)).grow();
             dialog.show();
-        }).width(300).height(50).padTop(10).left();
-        t.row();
+        }).width(300).height(50).padTop(10).left().get();
     });
 
-    let hints = Reflect.get(Vars.ui.hints, "group");
-    let lastHint;
     hintLabel = new FLabel("");
     hintLabel.setStyle(Styles.outlineLabel);
     hintLabel.setAlignment(Align.center, Align.left);
     hintLabel.setWrap(true);
-    
-    let elem = extend(Element, {
-        draw(){
-            hasUnit = false;
-            let width = Math.min(Scl.scl(300), Core.graphics.getWidth()/2);
-            const isGlobal = Core.settings.getBool("anime-units-display-global-enable", false);
-            const globalName = Core.settings.getString("anime-units-display-global-texture", "alpha");
-            if(!Vars.player.dead()){
-                let next = Vars.player.unit().type;
-                if(next == UnitTypes.block){
-                    next = Vars.player.unit().tile().block;
-                }
-                if(lastType != next){
-                    if (isGlobal) {
-                        lastType = next;
-                        reloads = Array(Vars.player.unit().mounts.length);
-                    } else {
-                        fade = Mathf.approachDelta(fade, 0, 0.04);
-                        if(fade <= 0.01){
-                            lastType = next;
-                            reloads = Array(Vars.player.unit().mounts.length);
-                            squish = 1;
-                        }
-                    }
-                }else{
-                    fade = Mathf.approachDelta(fade, 1, 0.04);
-                }
 
-                if(reloads.length == Vars.player.unit().mounts.length){
-                    for(var i = 0; i < reloads.length; i ++){
-                        let val = Vars.player.unit().mounts[i].reload;
-                        if(reloads[i] < val){
-                            squish = 0.4;
-                        }
-                        reloads[i] = val;
-                    }
+    const displayElement = extend(Element, {
+        draw() {
+            if (!Vars.state.isGame() || !currentTexSet) {
+                return;
+            }
+
+            const charData = getSeasonalData(currentTexSet);
+            if (!charData) {
+                return;
+            }
+
+            const unit = Vars.player.unit();
+            const isFallback = Core.settings.getBool(KEY_FALLBACK_HANDLING, true);
+            let activeTex = charData.main;
+
+            if (unit && !Vars.player.dead()) {
+                if (unit.mining()) {
+                    activeTex = charData.mining || (isFallback ? charData.shooting : null) || charData.main;
+                } else if (unit.activelyBuilding()) {
+                    activeTex = charData.building || charData.main;
+                } else if (unit.isShooting) {
+                    activeTex = charData.shooting || (isFallback ? charData.mining : null) || charData.main;
                 }
-	        }else{
+            }
+
+            if (!activeTex) {
+                activeTex = Core.atlas.error.texture;
+            }
+
+            if (lastTex != activeTex) {
+                squish = Math.max(squish, 0.5);
+                lastTex = activeTex;
+            }
+
+            const tex = Draw.wrap(activeTex);
+            const width = Math.min(Scl.scl(300), Core.graphics.getWidth() / 2);
+            const height = width * tex.height / tex.width;
+
+            const anchor = lastType ? !NO_ANCHOR_CHARACTERS.includes(lastType.name) : true;
+            const fin = Interp.swingOut.apply(fade);
+
+            const squishFactor = 0.2 * squish + Mathf.sin(Time.globalTime, 20, 0.01);
+            const oy = Mathf.cos(Time.globalTime + 5, 50, 8) - height * 0.02;
+            const ox = Mathf.sin(Time.globalTime, 100, 2);
+
+            const fWidth = width * (1 + squishFactor);
+            const fHeight = height * (1 - squishFactor);
+
+            const drawY = anchor ? (fHeight / 2) : (height / 2);
+            const verticalOffset = -height * (1.0 - fin) + drawY + oy;
+
+            Draw.color();
+            Draw.rect(tex, width / 2 + ox, verticalOffset, fWidth, fHeight);
+            hintLabel.setBounds(Scl.scl(6), height + oy, width - Scl.scl(12), 0);
+        }
+    });
+
+    displayElement.update(() => {
+        if (!Vars.player.dead()) {
+            const unit = Vars.player.unit();
+            let next = unit.type;
+            if (next == UnitTypes.block) {
+                const tile = unit.tile();
+                next = tile ? tile.block : null;
+            }
+
+            const isGlobal = Core.settings.getBool(KEY_GLOBAL_OVERRIDE_ENABLED, false);
+            const targetChar = isGlobal ? Core.settings.getString(KEY_GLOBAL_OVERRIDE_TEXTURE, DEFAULT_OVERRIDE_CHARACTER) : (next ? next.name : null);
+            if (lastTargetChar != targetChar) {
                 fade = Mathf.approachDelta(fade, 0, 0.04);
-	        }
-	        
-            let mainData = null;
-            if (isGlobal) {
-                if (!globalTextures[globalName]) {
-                    globalTextures[globalName] = {
-                        def: loadAll(globalName),
-                        summer: loadAll(globalName + "-summer")
-                    };
+                if (fade <= 0.01) {
+                    lastTargetChar = targetChar;
+                    currentTexSet = getFullSet(targetChar);
+                    reloads = unit.mounts ? Array(unit.mounts.length).fill(0) : [];
+                    squish = 1;
+                    lastType = next;
                 }
-                mainData = globalTextures[globalName];
-            } else if (lastType && textures[lastType]) {
-                mainData = textures[lastType];
+            } else {
+                fade = Mathf.approachDelta(fade, 1, 0.04);
+                lastType = next;
             }
-            if (mainData && mainData.def && Vars.state.isGame()) {
-	            hasUnit = true;
-                let isSummer = Vars.indexer.isBlockPresent(Blocks.sand) && Vars.indexer.isBlockPresent(Blocks.sandWater) && !Vars.indexer.isBlockPresent(Blocks.ice) && !Vars.indexer.isBlockPresent(Blocks.snow) && 
-                    (Vars.indexer.isBlockPresent(Blocks.water) || Vars.indexer.isBlockPresent(Blocks.deepwater));
 
-                let data = (isSummer && mainData.summer ? mainData.summer : mainData.def) || mainData.def;
-                let unit = Vars.player.unit();
-
-                const isFallback = Core.settings.getBool("anime-units-display-fallback", true);
-                let texMining = data.mining;
-                let texShooting = data.shooting;
-                let texBuilding = data.building;
-                if (isFallback) {
-                    if (texMining == null && texShooting != null) texMining = texShooting;
-                    if (texShooting == null && texMining != null) texShooting = texMining;
-                }
-                if (texMining == null) texMining = data.main;
-                if (texShooting == null) texShooting = data.main;
-                if (texBuilding == null) texBuilding = data.main;
-
-                let mainTex = data.main;
-                if (!Vars.player.dead()) {
-                    if (unit.mining()) {
-                        mainTex = texMining;
-                    } else if (unit.activelyBuilding()) {
-                        mainTex = texBuilding;
-                    } else if (unit.isShooting) {
-                        mainTex = texShooting;
+            if (unit.mounts && reloads.length == unit.mounts.length) {
+                for (let i = 0; i < unit.mounts.length; i++) {
+                    if (reloads[i] < unit.mounts[i].reload) {
+                        squish = 0.4;
                     }
+                    reloads[i] = unit.mounts[i].reload;
                 }
-                
-                if(lastTex != mainTex){
-                    squish = Math.max(squish, 0.5);
-                    lastTex = mainTex;
+            }
+            hasUnit = currentTexSet && getSeasonalData(currentTexSet) != null;
+        } else {
+            fade = Mathf.approachDelta(fade, 0, 0.04);
+            hasUnit = false;
+        }
+
+        const hints = Reflect.get(Vars.ui.hints, "group");
+        if (hints) {
+            hints.getChildren().each(g => {
+                if (g.getChildren().size > 1) {
+                    g.getChildren().get(0).visible = !hasUnit;
                 }
-                
-                let conf = config[lastType] || {}
-                let anchor = (conf.anchor === undefined ? true : conf.anchor)
-                let fin = Interp.swingOut.apply(fade);
-	            let tex = Draw.wrap(mainTex);
-	            let height = width * tex.height / tex.width;
-                let squishFactor = 0.2 * squish + Mathf.sin(Time.globalTime, 20, 0.01);
-                let floatScl = 50, floatMag = 8;
-                let ox = Mathf.sin(Time.globalTime, 100, floatMag * 0.25), oy = Mathf.cos(Time.globalTime + 5, floatScl, floatMag) - height * 0.02;
-
-                let fwidth = width * (1 + squishFactor)
-                let fheight = height * (1 - squishFactor);
-                
-                Draw.color();
-				Draw.rect(tex, width/2 + ox, Math.min(-height * (1.0 - fin) + height/2 + oy - 1, anchor ? fheight/2 : -1000.0), fwidth, fheight);
-             
-                let pad = Scl.scl(12);
-                hintLabel.setBounds(pad/2, height + oy, width-pad*2, 0)
-            }
-
-            squish = Mathf.approachDelta(squish, 0, 0.05);
+            });
         }
-    });
-    elem.update(() => {
-        hints.getChildren().each(group => {
-            if(group.getChildren().size > 1){
-                group.getChildren().get(0).visible = !hasUnit;
-            }
-        });
-        if(hasUnit && !hintLabel.visible){
-            hintLabel.restart();
-        }
-        hintLabel.visible = hasUnit;
 
-        let nextHint = Reflect.get(Vars.ui.hints, "current");
-        if(nextHint != lastHint){
+        const nextHint = Reflect.get(Vars.ui.hints, "current");
+        if (nextHint != lastHint) {
             lastHint = nextHint;
-            hintLabel.actions(Actions.parallel(Actions.show(), Actions.alpha(0, 1.0, Interp.smooth), Actions.translateBy(0, Scl.scl(-500), 0.6, Interp.swingIn)), Actions.hide());
-
-            if(nextHint != null){
+            if (nextHint) {
                 showDialogue(fetchText(nextHint));
+            } else {
+                showDialogue(null);
             }
         }
+        squish = Mathf.approachDelta(squish, 0, 0.05);
     });
-    elem.touchable = Touchable.disabled;
-    Core.app.post(() => Vars.ui.hudGroup.addChildAt(0, elem));
-})
+
+    displayElement.touchable = Touchable.disabled;
+    Vars.ui.hudGroup.addChildAt(0, displayElement);
+    Vars.ui.hudGroup.addChildAt(1, hintLabel);
+});
