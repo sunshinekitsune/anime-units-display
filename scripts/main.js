@@ -22,6 +22,13 @@ const waterFloors = new Seq();
 const SUMMER_MINIMUM = 4;
 const COLD_MINIMUM = 3;
 
+let baseSummerScore = 0;
+let baseColdScore = 0;
+let baseHasWater = false;
+
+const WEATHER_INTERVAL_TICKS = 60;
+let weatherInterval = 0;
+
 const cache = new Map();
 const globalCache = new Map();
 let currentTexSet = null;
@@ -166,52 +173,72 @@ function showKey(textName, delay, once, duration) {
     }
 }
 
-Events.run(WorldLoadEvent, () => {
-    Core.app.post(() => {
-        mapType = 0;
-        let summerPresent = 0;
-        let coldPresent = 0;
-        Vars.state.rules.weather.each(w => {
+function calculateWeather() {
+    let currentSummer = baseSummerScore;
+    let currentCold = baseColdScore;
+    if (Vars.state && Vars.state.weather) {
+        Vars.state.weather.each(w => {
             if (w.weather == Weathers.rain) {
-                summerPresent--;
+                currentSummer--;
             }
             if (w.weather == Weathers.sandstorm) {
-                summerPresent++;
+                currentSummer++;
             }
             if (w.weather == Weathers.snow) {
-                coldPresent++;
+                currentCold++;
             }
         });
+    }
+
+    let newMapType = 0;
+    if (currentCold >= COLD_MINIMUM) {
+        newMapType = 2;
+    } else if (baseHasWater && currentSummer >= SUMMER_MINIMUM) {
+        newMapType = 1;
+    }
+
+    if (mapType !== newMapType) {
+        mapType = newMapType;
+        squish = 1;
+    }
+}
+
+Events.run(WorldLoadEvent, () => {
+    Core.app.post(() => {
+        baseSummerScore = 0;
+        baseColdScore = 0;
+        baseHasWater = false;
+
+        Vars.state.rules.weather.each(w => {
+            if (w.weather == Weathers.rain) baseSummerScore--;
+            if (w.weather == Weathers.sandstorm) baseSummerScore++;
+            if (w.weather == Weathers.snow) baseColdScore++;
+        });
+
         for (let i = 0; i < coldFloors.size; i++) {
-            if (coldPresent >= COLD_MINIMUM) {
-                break;
-            }
+            if (baseColdScore >= COLD_MINIMUM) break;
             if (Vars.indexer.isBlockPresent(coldFloors.get(i))) {
-                coldPresent++;
+                baseColdScore++;
             }
         }
-        if (coldPresent >= COLD_MINIMUM) {
-            mapType = 2;
-        } else {
-            let hasWater = false;
-            for (let i = 0; i < waterFloors.size; i++) {
-                if (Vars.indexer.isBlockPresent(waterFloors.get(i))) {
-                    hasWater = true;
-                    const f = waterFloors.get(i);
-                    if ((f instanceof ShallowLiquid && summerFloors.contains(f.floorBase)) || f.drownTime > 0) {
-                        summerPresent++;
-                    }
+
+        for (let i = 0; i < waterFloors.size; i++) {
+            if (Vars.indexer.isBlockPresent(waterFloors.get(i))) {
+                baseHasWater = true;
+                const f = waterFloors.get(i);
+                if ((f instanceof ShallowLiquid && summerFloors.contains(f.floorBase)) || f.drownTime > 0) {
+                    baseSummerScore++;
                 }
-            }
-            for (let i = 0; i < summerFloors.size && summerPresent < SUMMER_MINIMUM; i++) {
-                if (Vars.indexer.isBlockPresent(summerFloors.get(i))) {
-                    summerPresent++;
-                }
-            }
-            if (hasWater && summerPresent >= SUMMER_MINIMUM) {
-                mapType = 1;
             }
         }
+
+        for (let i = 0; i < summerFloors.size && baseSummerScore < SUMMER_MINIMUM; i++) {
+            if (Vars.indexer.isBlockPresent(summerFloors.get(i))) {
+                baseSummerScore++;
+            }
+        }
+
+        calculateWeather();
     });
 });
 
@@ -330,6 +357,14 @@ Events.run(ClientLoadEvent, () => {
     });
 
     displayElement.update(() => {
+        if (Vars.state.isGame()) {
+            weatherInterval += Time.delta;
+            if (weatherInterval >= WEATHER_INTERVAL_TICKS) {
+                weatherInterval = 0;
+                calculateWeather();
+            }
+        }
+
         if (!Vars.player.dead()) {
             const unit = Vars.player.unit();
             let next = unit.type;
